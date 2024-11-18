@@ -1,4 +1,4 @@
-# Athena - Insights Service
+# Oracle - AI Prediction Service
 
 ## Setting up Environment
 
