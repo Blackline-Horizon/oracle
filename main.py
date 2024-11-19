@@ -3,6 +3,7 @@ import uvicorn
 from fastapi import FastAPI
 from fastapi.responses import PlainTextResponse
 from dotenv import load_dotenv
+from fastapi.middleware.cors import CORSMiddleware
 import os
 
 # Load environment variables from the .env file
@@ -14,6 +15,13 @@ PORT = int(os.getenv("PORT", 3007))
 
 app = FastAPI()
 
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 @app.get("/", response_class=PlainTextResponse)
 def read_root():
