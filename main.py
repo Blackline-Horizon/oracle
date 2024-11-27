@@ -34,4 +34,4 @@ def read_item(item_id: int, q: Union[str, None] = None):
 
 
 if __name__ == "__main__":
-    uvicorn.run("main:app", port=3007, log_level="info")
+    uvicorn.run("main:app", host = HOST, port=PORT, log_level="info")
