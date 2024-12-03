@@ -48,8 +48,6 @@ SessionLocal = sessionmaker(
 def startup_event():
     # Create the 'map' schema if it doesn't exist
     from sqlalchemy import text
-    print(f"\nHERE'S THE HOST: {HOST}\n")
-    print(f"\nHERE'S THE PORT: {PORT}\n")
     with engine.connect() as conn:
         conn.execute(text("CREATE SCHEMA IF NOT EXISTS map"))
     # Create tables within the 'map' schema
