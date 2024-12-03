@@ -90,4 +90,4 @@ def get_predictions():
 if __name__ == "__main__":
     import uvicorn
 
-    uvicorn.run("app", host=HOST, port=PORT, log_level="info")
+    uvicorn.run("main:app", host=HOST, port=PORT, log_level="info")
