@@ -10,7 +10,7 @@ from dotenv import load_dotenv
 import os
 
 from models import Base, Alert, Type
-from schemas import AlertPrediction, PredictionResponse
+from schemas import AlertPrediction, PredictionResponse, GetReport
 
 # Load environment variables
 load_dotenv()
@@ -30,7 +30,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
 # Create synchronous engine
 engine = create_engine(
     DATABASE_URL,
@@ -50,6 +49,7 @@ def startup_event():
     from sqlalchemy import text
     with engine.connect() as conn:
         conn.execute(text("CREATE SCHEMA IF NOT EXISTS map"))
+        conn.commit()
     # Create tables within the 'map' schema
     Base.metadata.create_all(bind=engine)
 
