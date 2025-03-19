@@ -57,11 +57,11 @@ def startup_event():
 def read_root():
     return {"message": "Dummy Prediction Service is running!"}
 
-@app.get("/report_info")
+@app.post("/report_info")
 def get_report_info(filters:GetReport):
     data = {
-        'alerts_last_4w': 200,
-        'last_4w': 170,
+        'predicted_next_4w': 200,
+        'actual_last_4w': 170,
         'predicted_last_4w': 190,
     }
     return data
