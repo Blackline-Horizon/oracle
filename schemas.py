@@ -14,11 +14,12 @@ class PredictionResponse(BaseModel):
     predictions: List[AlertPrediction]
 
 class GetReport(BaseModel):
-    resolutions: List[int] = Field(...)
-    devices: List[int] = Field(...)
-    sensors: List[int] = Field(...)
-    events: List[int] = Field(...)
-    industry: Optional[List[int]] = Field(default=None)
-    date_start: date = Field(...)
-    date_end: date = Field(...)
-    countries: Optional[List[int]] = Field(default=None) 
+    resolution_reason: Optional[List[str]] = None
+    device_type: Optional[List[str]] = None
+    sensor_type: Optional[List[str]] = None
+    event_type: Optional[List[str]] = None
+    industry: Optional[List[str]] = None
+    continent: Optional[List[str]] = None
+    date_start: datetime = Field(...)
+    date_end: datetime = Field(...)
+    country: Optional[List[str]] = None
