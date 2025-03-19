@@ -47,18 +47,9 @@ def startup_event():
 def read_root():
     return {"message": "Prediction Service is up and running!"}
 
-def create_input_sequence(data: np.ndarray, timesteps: int = 3) -> np.ndarray:
-    """
-    Create a 3D array of sequences from the 2D data array.
-    For prediction purposes, we will flatten the last timesteps into one vector.
-    """
-    X = []
-    for i in range(len(data) - timesteps + 1):
-        X.append(data[i : i + timesteps])
-    return np.array(X)
 
 @app.post("/report_data")
-def get_report_info(filters: GetReport):
+def get_report_data(filters: GetReport):
     try:
         # Load the pre-trained SVR model and scaler from pickle files.
         with open("models/svr_model.pkl", "rb") as f:
@@ -67,7 +58,7 @@ def get_report_info(filters: GetReport):
             scaler = pickle.load(f)
 
         # Define the time range for the last 4 months.
-        end_date = filters.date_end
+        end_date = filters.date_end.replace(tzinfo=None)
         start_date = end_date - relativedelta(months=4)
 
         # Start a new database session.
@@ -90,7 +81,7 @@ def get_report_info(filters: GetReport):
             query = query.filter(Alert.industry.in_(filters.industry))
         if filters.country:
             query = query.filter(Alert.country.in_(filters.country))
-        # (If needed, add continent filters here using your own logic.)
+        # (Add continent filters if needed.)
 
         alerts = query.all()
         session.close()
@@ -109,76 +100,78 @@ def get_report_info(filters: GetReport):
         df["count"] = 1
         df.set_index('date_created', inplace=True)
 
-        # --- Reconstruct the feature engineering pipeline used in training ---
-        # 1. Aggregate total alerts by month end (~4 weeks)
-        monthly_total = df.resample("ME").sum()[["count"]]
-        monthly_total.rename(columns={"count": "total_alerts"}, inplace=True)
+        # --- Aggregate data into 4-week (28-day) buckets aligned with end_date ---
+        # Use resample with a 28-day frequency. The "origin" parameter aligns the buckets so that the last bucket ends at end_date.
+        total_agg = df.resample("28D", origin=end_date, label='right', closed='right').sum()[["count"]]
+        total_agg.rename(columns={"count": "total_alerts"}, inplace=True)
 
-        # 2. Create categorical dummy columns for the categorical features
+        # Create categorical dummy columns for selected features.
         cat_columns = ["device_type", "sensor_type", "event_type", "resolution_reason", "industry"]
         df_dummies = pd.get_dummies(df[cat_columns])
-        monthly_cats = df_dummies.resample("ME").sum()
+        cat_agg = df_dummies.resample("28D", origin=end_date, label='right', closed='right').sum()
 
-        # 3. Join the aggregated total alerts and the categorical aggregates
-        base_monthly_data = monthly_total.join(monthly_cats)
+        # Join the total alerts and categorical aggregates.
+        base_data = total_agg.join(cat_agg)
 
-        # 4. Create additional time features as in training.
-        base_monthly_data['year_fraction'] = (base_monthly_data.index.dayofyear - 1) / 365.0
-        base_monthly_data['time_idx'] = (
-            (base_monthly_data.index.year - base_monthly_data.index.year.min()) * 12 +
-            base_monthly_data.index.month
-        )
-        # Create a scaled time index if that feature was used.
-        min_time = base_monthly_data['time_idx'].min()
-        max_time = base_monthly_data['time_idx'].max()
-        base_monthly_data['time_idx_scaled'] = (
-            (base_monthly_data['time_idx'] - min_time) / (max_time - min_time)
-            if max_time != min_time else 0
-        )
+        # --- Create additional time features ---
+        # Use the bucket end date to compute a fractional representation of the year.
+        base_data['year_fraction'] = (base_data.index.dayofyear - 1) / 365.0
+        # Use a sequential index for the buckets.
+        base_data['time_idx'] = np.arange(len(base_data))
+        # Optionally add a rolling average of total_alerts.
+        base_data['rolling_avg'] = base_data['total_alerts'].rolling(window=3, min_periods=1).mean()
+        # Create a scaled time index.
+        min_time = base_data['time_idx'].min()
+        max_time = base_data['time_idx'].max()
+        base_data['time_idx_scaled'] = ((base_data['time_idx'] - min_time) / (max_time - min_time)
+                                         if max_time != min_time else 0)
 
-        # 5. Ensure that the dataset has exactly the features the scaler was fitted on.
-        # It is assumed that the scaler has the attribute `feature_names_in_`.
+        # --- Ensure the feature set matches what the scaler was fitted on ---
         expected_features = scaler.feature_names_in_
         for col in expected_features:
-            if col not in base_monthly_data.columns:
-                base_monthly_data[col] = 0  # populate missing features with zeros
-
+            if col not in base_data.columns:
+                base_data[col] = 0  # populate missing features with zeros
         # Reorder columns to match the expected order.
-        features_df = base_monthly_data[expected_features]
+        features_df = base_data[expected_features]
 
         # Scale the features.
         scaled_features = scaler.transform(features_df)
         scaled_df = pd.DataFrame(scaled_features, index=features_df.index, columns=expected_features)
 
-        # For prediction, we need at least (TIME_STEPS + 1) data points.
-        TIME_STEPS = 3
+        # --- Build prediction inputs ---
+        # We require at least 4 buckets (4 periods) within the 4-month window.
+        TIME_STEPS = 3  # number of buckets to feed as input
         if len(scaled_df) < TIME_STEPS + 1:
             raise HTTPException(status_code=400, detail="Not enough historical data to generate predictions.")
 
-        # Convert the scaled DataFrame to a NumPy array.
-        data_array = scaled_df.values
+        # Select the most recent 4 buckets from the aggregated data.
+        recent_scaled = scaled_df.iloc[-(TIME_STEPS + 1):]  # shape: (4, number_of_features)
+        data_array = recent_scaled.values
 
-        # Construct input sequences:
-        # - Use the first TIME_STEPS rows to predict the 4th period (predicted_last_4w).
-        # - Use the last TIME_STEPS rows to predict the next period (predicted_next_4w).
-        X_pred_last = data_array[0:TIME_STEPS].reshape(1, -1)
-        X_pred_next = data_array[-TIME_STEPS:].reshape(1, -1)
+        # According to the requirement:
+        # - "predicted_last_4w" uses data from 4 months ago to 1 month ago: that is the oldest 3 buckets.
+        # - "predicted_next_4w" uses data from 3 months ago to today: that is the most recent 3 buckets.
+        X_pred_last = data_array[0:TIME_STEPS].reshape(1, -1)   # buckets 0,1,2 (oldest 3)
+        X_pred_next = data_array[1:TIME_STEPS+1].reshape(1, -1)   # buckets 1,2,3 (most recent 3)
 
-        # Make predictions (scaled values).
+        # Make predictions (these are scaled values).
         pred_last_scaled = model.predict(X_pred_last)
         pred_next_scaled = model.predict(X_pred_next)
 
-        # Inverse transform the predictions to the original scale.
+        # Inverse transform the predictions.
         dummy_last = np.zeros((1, scaled_df.shape[1]))
-        dummy_last[0, 0] = pred_last_scaled  # assuming 'total_alerts' is at index 0
+        dummy_last[0, 0] = pred_last_scaled  # assuming the target 'total_alerts' is in column index 0
         inv_pred_last = scaler.inverse_transform(dummy_last)[0, 0]
 
         dummy_next = np.zeros((1, scaled_df.shape[1]))
         dummy_next[0, 0] = pred_next_scaled
         inv_pred_next = scaler.inverse_transform(dummy_next)[0, 0]
 
-        # Get the actual total alerts for the last period from the aggregated data.
-        actual_last = base_monthly_data["total_alerts"].iloc[-1]
+        # Get the actual total alerts for the last observed bucket (i.e. the bucket ending 1 month ago).
+        # Since our buckets are ordered chronologically, the 4th bucket (index -2) corresponds to the last complete bucket
+        # if we assume that the very last bucket might be a partial bucket. Here we take the second-to-last bucket.
+        recent_base = base_data.iloc[-(TIME_STEPS + 1):]
+        actual_last = recent_base["total_alerts"].iloc[-2]  # second-to-last bucket
 
         return {
             "predicted_last_4w": float(inv_pred_last),
@@ -188,6 +181,7 @@ def get_report_info(filters: GetReport):
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
 
 if __name__ == "__main__":
     import uvicorn
