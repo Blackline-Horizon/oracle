@@ -118,8 +118,6 @@ def get_report_data(filters: GetReport):
         base_data['year_fraction'] = (base_data.index.dayofyear - 1) / 365.0
         # Use a sequential index for the buckets.
         base_data['time_idx'] = np.arange(len(base_data))
-        # Optionally add a rolling average of total_alerts.
-        base_data['rolling_avg'] = base_data['total_alerts'].rolling(window=3, min_periods=1).mean()
         # Create a scaled time index.
         min_time = base_data['time_idx'].min()
         max_time = base_data['time_idx'].max()
