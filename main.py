@@ -173,7 +173,7 @@ def get_report_data(filters: GetReport):
 
         # Check that there are enough data points to create the required time steps.
         if len(features_df) < TIME_STEPS + 1:
-            raise HTTPException(status_code=400, detail="Not enough historical data to generate predictions.")
+            raise HTTPException(status_code=404, detail="Not enough historical data to generate predictions.")
 
         # --- Build prediction inputs ---
         # Select the most recent TIME_STEPS + 1 buckets.
