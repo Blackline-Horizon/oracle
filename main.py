@@ -155,6 +155,15 @@ def get_report_data(filters: GetReport):
         # Join total alerts and categorical aggregates.
         base_data = total_agg.join(cat_agg)
 
+                # Get the actual total alerts for the last observed complete bucket.
+        # We take the second-to-last bucket from the original (non-flattened) base_data.
+        recent_base = base_data.iloc[-(TIME_STEPS + 1):]
+        actual_last = recent_base["total_alerts"].iloc[-2]
+
+        if actual_last < 20000:
+            raise HTTPException(status_code=404, detail="Not enought alerts to generate predictions.")
+
+
         # --- Create additional time features (consistent with your training configuration) ---
         # Year fraction encoding.
         base_data['year_fraction'] = (base_data.index.dayofyear - 1) / 365.0
@@ -190,11 +199,6 @@ def get_report_data(filters: GetReport):
         # method returns predictions in the original target space.
         pred_last = model.predict(X_pred_last)
         pred_next = model.predict(X_pred_next)
-
-        # Get the actual total alerts for the last observed complete bucket.
-        # We take the second-to-last bucket from the original (non-flattened) base_data.
-        recent_base = base_data.iloc[-(TIME_STEPS + 1):]
-        actual_last = recent_base["total_alerts"].iloc[-2]
 
         return {
             "predicted_last_4w": int(pred_last),
