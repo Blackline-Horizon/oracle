@@ -37,7 +37,7 @@ app.add_middleware(
 )
 
 # Create synchronous engine and sessionmaker
-engine = create_engine(DATABASE_URL, echo=True)
+engine = create_engine(DATABASE_URL, echo=False)
 SessionLocal = sessionmaker(autocommit=False, autoflush=True, bind=engine)
 
 @app.on_event("startup")
@@ -84,6 +84,7 @@ def combine_country_filters(country_list, continent_list):
 def get_report_data(filters: GetReport):
     try:
         # Load the pre-trained linear regression model and its experiment configuration.
+        # print("Loaded The Model")
         with open("models/best_lr_model.pkl", "rb") as f:
             model = pickle.load(f)
         with open("models/best_lr_experiment.pkl", "rb") as f:
@@ -92,8 +93,8 @@ def get_report_data(filters: GetReport):
         # Get expected features and time_steps from the experiment details.
         expected_features = best_exp_lr["features"]
         TIME_STEPS = best_exp_lr["time_steps"]
-        print(expected_features)
-        print(TIME_STEPS)
+        # print(expected_features)
+        # print(TIME_STEPS)
 
         # Define the time range based on the filters.
         end_date = filters.date_end.replace(tzinfo=None)
@@ -106,6 +107,7 @@ def get_report_data(filters: GetReport):
             Alert.date_created >= start_date,
             Alert.date_created <= end_date
         )
+        # print("Querying Database")
         res_ids = convert_filter(filters.resolution_reason, RESOLUTION_REASON_MAPPING)
         if res_ids:
             query = query.filter(Alert.resolution_reason_id.in_(res_ids))
