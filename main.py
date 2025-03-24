@@ -84,11 +84,11 @@ def combine_country_filters(country_list, continent_list):
 def get_report_data(filters: GetReport):
     try:
         # Load the pre-trained linear regression model and its experiment configuration.
-        # print("Loaded The Model")
         with open("models/best_lr_model.pkl", "rb") as f:
             model = pickle.load(f)
         with open("models/best_lr_experiment.pkl", "rb") as f:
             best_exp_lr = pickle.load(f)
+        print("Loaded The Model")
 
         # Get expected features and time_steps from the experiment details.
         expected_features = best_exp_lr["features"]
