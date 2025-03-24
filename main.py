@@ -94,13 +94,13 @@ def get_report_data(filters: GetReport):
         TIME_STEPS = best_exp_lr["time_steps"]
         print(expected_features)
         print(TIME_STEPS)
-        # Define the time range for the last 4 months.
+
+        # Define the time range based on the filters.
         end_date = filters.date_end.replace(tzinfo=None)
         start_date = end_date - relativedelta(months=TIME_STEPS)
 
-        # Start a new database session.
+        # Start a new database session and build the base query with date and additional filters.
         session: Session = SessionLocal()
-        # Build the base query with date filters and any additional filters.
         query = session.query(Alert)
         query = query.filter(
             Alert.date_created >= start_date,
@@ -155,53 +155,33 @@ def get_report_data(filters: GetReport):
         # Join total alerts and categorical aggregates.
         base_data = total_agg.join(cat_agg)
 
-                # Get the actual total alerts for the last observed complete bucket.
-        # We take the second-to-last bucket from the original (non-flattened) base_data.
+        # Get the actual total alerts for the last observed complete bucket.
         recent_base = base_data.iloc[-(TIME_STEPS + 1):]
         actual_last = recent_base["total_alerts"].iloc[-2]
 
-        if actual_last < 20000:
-            raise HTTPException(status_code=404, detail="Not enought alerts to generate predictions.")
-
-
-        # --- Create additional time features (consistent with your training configuration) ---
-        # Year fraction encoding.
+        # --- Create additional time features ---
         base_data['year_fraction'] = (base_data.index.dayofyear - 1) / 365.0
-        # Time index: using (year difference * 12 + month) to capture trend over time.
         base_data['time_idx'] = (base_data.index.year - base_data.index.year.min()) * 12 + base_data.index.month
-        # Add rolling average if it was used during training.
         if best_exp_lr["config"].get("use_rolling_avg", False):
             base_data['rolling_avg'] = base_data['total_alerts'].rolling(window=3, min_periods=1).mean()
 
         # --- Ensure the feature set matches what the model was trained on ---
         for col in expected_features:
             if col not in base_data.columns:
-                base_data[col] = 0  # populate missing features with zeros
-        # Reorder columns to match the expected order.
+                base_data[col] = 0  # Populate missing features with zeros
         features_df = base_data[expected_features]
 
         # Check that there are enough data points to create the required time steps.
         if len(features_df) < TIME_STEPS + 1:
             raise HTTPException(status_code=404, detail="Not enough historical data to generate predictions.")
 
-        # --- Build prediction inputs ---
-        # Select the most recent TIME_STEPS + 1 buckets.
+        # --- Build prediction input for the next 4-week bucket ---
         recent_data = features_df.iloc[-(TIME_STEPS + 1):]
         data_array = recent_data.values
-        # According to requirements:
-        # - "predicted_last_4w" uses buckets 0 to TIME_STEPS-1 (oldest TIME_STEPS buckets).
-        # - "predicted_next_4w" uses buckets 1 to TIME_STEPS (most recent TIME_STEPS buckets).
-        X_pred_last = data_array[0:TIME_STEPS].reshape(1, -1)
         X_pred_next = data_array[1:TIME_STEPS+1].reshape(1, -1)
-
-        # Make predictions.
-        # Note: The linear regression model is a TransformedTargetRegressor whose predict()
-        # method returns predictions in the original target space.
-        pred_last = model.predict(X_pred_last)
         pred_next = model.predict(X_pred_next)
 
         return {
-            "predicted_last_4w": int(pred_last),
             "actual_last_4w": int(actual_last),
             "predicted_next_4w": int(pred_next)
         }
